@@ -31,12 +31,16 @@ from dash import register_page
 from dash import callback, Input, Output
 
 
-def generate_patientYpos(patient_DF):
-    unique_patients = patient_DF['patient'].unique()
-    return {patient: i+1 for i, patient in enumerate(unique_patients)}
+def generate_patientYpos(patient_DF, selected_drug):
+    all_patients = patient_DF['patient'].unique()
+    patients_with_drug = patient_DF[patient_DF['drug'] == selected_drug]['patient'].unique()
+    ordered_patients = list(patients_with_drug) + [p for p in all_patients if p not in patients_with_drug]
+    y_pos = {patient: len(ordered_patients) - i for i, patient in enumerate(ordered_patients)}
 
-def make_figure(treats_filtered):
-    patient_pos = generate_patientYpos(treats_filtered)
+    return y_pos
+
+def make_figure(treats_filtered, selected_drug):
+    patient_pos = generate_patientYpos(treats_filtered, selected_drug)
     
     unique_drugs = sorted(treats_filtered['drug'].dropna().astype(str).unique())
     color_list = px.colors.qualitative.Alphabet
@@ -110,6 +114,29 @@ def make_figure(treats_filtered):
     )
     return fig
 
+
+def shift_timeline_by_drug(df, drug):
+    patient_offsets = (
+        df[df['drug'] == drug]
+        .groupby('patient')['tx_start']
+        .min()
+        .to_dict()
+    )
+
+    def compute_shift(row):
+        offset = patient_offsets.get(row['patient'])
+        if pd.isna(row['tx_start']):
+            return pd.NA, pd.NA
+        if offset is None:
+            return row['tx_start'], row['tx_end']
+        return row['tx_start'] - offset, row['tx_end'] - offset
+
+    df[['tx_start_rel', 'tx_end_rel']] = df.apply(
+        lambda row: pd.Series(compute_shift(row), index=['tx_start_rel', 'tx_end_rel']),
+        axis=1
+    )
+    return df
+
 annotations = {
     'thyroid gland': (214, 140),
     'esophagus': (223, 175),
@@ -142,7 +169,7 @@ annotations = {
     'small intestine':(205,350),
     'diaphragm':(225,225),
     'chest':(240,190),
-    'bone':(100,100),
+    'bone':(100,270),
     'bladder':(220,395),
     'coronary':(222,199),
     'adrenal gland':(185,300),
@@ -199,14 +226,19 @@ def map_site(text):
 
 treats=pd.DataFrame(treatment_process_centeredbio('Juric_Rapid_Autopsy_MASTER-treatments1.csv', 'Juric_Rapid_Autopsy_MASTER-participants.txt', 'Juric_Rapid_Autopsy_MASTER-biospecimens.txt'))
 treats['tx_end'] = pd.to_numeric(treats['tx_end'], errors='coerce')
-treats['morph'] = treats['morph'].astype(str)
 xmax = math.ceil(treats['tx_end'].max())
 treats['biospeclocation'] = treats['tissue_site'].map(tissue_to_site).fillna('Fail')
 biospecdata=pd.DataFrame(tableprocess('Juric_Rapid_Autopsy_MASTER-biospecimens.txt', 'Juric_Rapid_Autopsy_MASTER-participants.txt'))
 treats['simplemorph'] = treats['morph'].apply(map_site).fillna('Unknown')
-biospecdata['simplemorph'] = treats['morph'].apply(map_site).fillna('Unknown')
+biospecdata['simplemorph'] = biospecdata['morph'].apply(map_site).fillna('Unknown')
+treats['simplemorph'] = treats['simplemorph'].astype(str)
 
-
+stop_marker_styles = {
+        'Progression and relapse': dict(color='red', symbol='circle', size=10),
+        'Completion of standard course': dict(color='black', symbol='triangle-down', size=10),
+        'Toxicity': dict(color='green', symbol='triangle-down', size=10),
+        'Other': dict(color='gray', symbol='circle', size=10)
+    }
 
 
 
@@ -220,14 +252,21 @@ layout = dbc.Container([
     dbc.Row([
         dbc.Col(html.H2("Cohort Data", className="text-center text-primary mb-4"))
     ]),
-    dbc.Row([
+    dbc.Row([ 
         dbc.Col(
+            [
             dcc.Dropdown(
                 id='cohort-dropdown',
-                options = [{'label': morph, 'value': morph} for morph in sorted(treats['simplemorph'].dropna().unique())],
+                options=[{'label': morph, 'value': morph} for morph in sorted(treats['simplemorph'].dropna().unique())],
                 placeholder="Select a Cohort",
-                style={'backgroundColor': 'transparent','color': 'mediumslateblue', 'border': '1px solid white',}
-        ),
+                style={'backgroundColor': 'transparent', 'color': 'mediumslateblue', 'border': '1px solid white'}
+            ),
+            dcc.Dropdown(
+                id='drug-dropdown',
+                placeholder='Select Drug',
+                style={'backgroundColor': 'transparent', 'color': 'mediumslateblue', 'border': '1px solid white'}
+            )
+        ],
         width=6,
         style={'backgroundColor': 'transparent'}
         )
@@ -235,20 +274,7 @@ layout = dbc.Container([
     dbc.Row([
         dbc.Col(
             dbc.Spinner(
-                dcc.Graph(id='cohortswimmerplot'),
-                color='info',
-                type='grow',
-                fullscreen=False,
-                size='sm'
-            ),
-            style={'backgroundColor': 'transparent'},
-            width=12
-        )
-    ]),
-    dbc.Row([
-        dbc.Col(
-            dbc.Spinner(
-                dcc.Graph(id='survival'),
+                dcc.Graph(id='timeline-plot-with'),
                 color='info',
                 type='grow',
                 fullscreen=False,
@@ -259,6 +285,19 @@ layout = dbc.Container([
         ),
         dbc.Col(
             dbc.Spinner(
+                dcc.Graph(id='timeline-plot-without'),
+                color='info',
+                type='grow',
+                fullscreen=False,
+                size="sm"
+            ),
+            width=6,
+            style={'backgroundColor': 'transparent'} 
+        ),
+    ]),
+    dbc.Row([
+         dbc.Col(
+            dbc.Spinner(
                 dcc.Graph(id='cohort-anatomy-plot'),
                 color='info',
                 type='grow',
@@ -268,9 +307,7 @@ layout = dbc.Container([
             width=6,
             style={'backgroundColor':'transparent'}
             
-        )
-    ]),
-    dbc.Row([
+        ),
         dbc.Col(
             dash_table.DataTable(
                 id='tableinfo2',
@@ -280,84 +317,126 @@ layout = dbc.Container([
                 style_cell={'textAlign': 'left', 'minWidth': '100px', 'width': '150px', 'maxWidth': '200px'},
                 page_size=10
             ),
-            width=12,
+            width=6,
             style={'backgroundColor': 'transparent'}
         )
     ], className="mb-4"),   
 ],fluid=True,  style={'backgroundColor': 'transparent'})
 
 
+
 @callback(
     Output('cohortswimmerplot', 'figure'),
-    Input('cohort-dropdown', 'value')
+    Input('cohort-dropdown', 'value'),
+    Input('drug-dropdown', 'value')
 )
-def update_figure(selected_morph):
+def update_figure(selected_morph, selected_drug):
     if selected_morph is None or selected_morph == '':
         filtered_df = treats
     else:
         filtered_df = treats[treats['simplemorph'] == selected_morph]
 
-    fig = make_figure(filtered_df)
-    fig.update_layout(title_text=f'Drug Progression in Rapid Autopsy Data of {selected_morph} Patients' if selected_morph else 'Drug Progression in Rapid Autopsy Data')
+    fig = make_figure(filtered_df, selected_drug)
+   
     return fig
 
 @callback(
-    Output('survival', 'figure'),
+    Output('drug-dropdown', 'options'),
+    Output('drug-dropdown', 'value'),
     Input('cohort-dropdown', 'value')
 )
-def update_survival(selected_morph):
-    if not selected_morph:
-        return go.Figure(layout={"title": "Select a cohort to see survival curve"})
-    df = treats.copy()
-    df['dead'] = np.where(df['vitalstatus'] == 'dead', 1, 0)
+def update_drug_options(selected_morph):
+    if selected_morph is None:
+        return [], None
+    filtered = treats[treats['simplemorph'] == selected_morph]
+    drugs = sorted(filtered['drug'].dropna().unique())
+    options = [{'label': d, 'value': d} for d in drugs]
 
-    if df['followup'].dtype == 'object':
-        df['followup'] = df['followup'].str.replace(',', '').str.strip()
-        df['followup'] = pd.to_numeric(df['followup'], errors='coerce')
-        df['dead'] = pd.to_numeric(df['dead'], errors='coerce')
-        
-    df = df.dropna(subset=['followup', 'dead'])
+    value = drugs[0] if drugs else None
+    return options, value
 
-    df['followup'] = df['followup'].astype(int)
-    df['dead'] = df['dead'].astype(int)
+@callback(
+    Output('timeline-plot-with', 'figure'),
+    Output('timeline-plot-without', 'figure'),
+    Input('cohort-dropdown', 'value'),
+    Input('drug-dropdown', 'value')
+)
+def update_swimmer_figure(selected_morph, selected_drug):
+    if selected_morph is None or selected_drug is None:
+        return go.Figure(), go.Figure()
+    
+    filtered = treats[treats['simplemorph'] == selected_morph].copy()
+    filtered = shift_timeline_by_drug(filtered, selected_drug)
+
+    patients_with_drug = filtered[filtered['drug'] == selected_drug]['patient'].unique()
 
     
-    cohort_data = df[df['simplemorph'] == selected_morph]
+    with_drug = filtered[filtered['patient'].isin(patients_with_drug)]
+    without_drug = filtered[~filtered['patient'].isin(patients_with_drug)]
 
-    kmf = KaplanMeierFitter()
- 
-    
-    fig = go.Figure()
-    for cat_name in cohort_data['categories'].unique():
-        subset = cohort_data[cohort_data['categories'] == cat_name] 
-        if subset.empty or subset['followup'].isnull().all() or subset['dead'].isnull().all():
-            continue
+    def create_figure(subset, title_suffix):
+        patient_pos = generate_patientYpos(subset, selected_drug)
+        unique_drugs = sorted(subset['drug'].dropna().unique())
+        color_list = px.colors.qualitative.Alphabet
+        while len(color_list) < len(unique_drugs):
+            color_list += color_list
+        drug_color_map = {drug: color_list[i % len(color_list)] for i, drug in enumerate(unique_drugs)}
+        fig = go.Figure()
+        plottable = subset.dropna(subset=['tx_start_rel', 'tx_end_rel'])
+        added_drug_legends = set()
 
-        try:
-            kmf.fit(subset['followup'], subset['dead'], label=str(cat_name))
-
+        for _, row in plottable.iterrows():
+            drug = row['drug']
+            color = drug_color_map.get(drug, 'lightgray')
+            show_legend = drug not in added_drug_legends
+            if show_legend:
+                added_drug_legends.add(drug)
+            patient_y = patient_pos[row['patient']]
             fig.add_trace(go.Scatter(
-                x=kmf.survival_function_.index,
-                y=kmf.survival_function_[kmf._label],
+                x=[row['tx_start_rel'], row['tx_end_rel']],
+                y=[patient_y, patient_y],
                 mode='lines',
-                name=str(cat_name),
-                line=dict(width=2)
+                line=dict(color=color, width=10),
+                hoverinfo='text',
+                name=drug,
+                text=f"Patient: {row['patient']}<br>Drug: {drug}<br>Start: {row['tx_start_rel']}<br>End: {row['tx_end_rel']}",
+                showlegend=show_legend
             ))
-        except Exception as e:
-            print(f"Skipping group '{cat_name}' due to error: {e}")
-            continue
-            
 
+        for _, row in plottable.iterrows():
+            stop = row['stop']
+            if stop in stop_marker_styles:
+                style = stop_marker_styles[stop]
+                patient_y = patient_pos[row['patient']]
+                fig.add_trace(go.Scatter(
+                    x=[row['tx_end_rel']],
+                    y=[patient_y],
+                    mode='markers',
+                    marker=dict(color=style['color'], symbol=style['symbol'], size=style['size']),
+                    name=stop,
+                    hoverinfo='text',
+                    text=f"Stop Reason: {row['stop']}<br>Morph: {row['morph']}",
+                    showlegend=False
+                ))
 
+        fig.update_layout(
+            title=f'Treatment Timeline {title_suffix}',
+            xaxis_title='Days from Drug Start',
+            yaxis_title='Patient',
+            yaxis=dict(
+                type='category',
+                categoryorder='array',
+                categoryarray=list(reversed(list(patient_pos.keys())))
+            ),
+            height=max(600, len(patient_pos) * 30),
+            margin=dict(l=120)
+        )
+        return fig
 
-    
-    fig.update_layout(
-        title=f"Survival Curve by Treatment Category",
-        xaxis_title='Follow-up Time (days)',
-        yaxis_title='Survival Probability',
-        template='plotly_white'
-    )
-    return fig
+    fig_with = create_figure(with_drug, f'with {selected_drug}')
+    fig_without = create_figure(without_drug, f'without {selected_drug}')
+
+    return fig_with, fig_without
 
 
 @callback(
@@ -367,9 +446,8 @@ def update_survival(selected_morph):
 
 def update_anatomy_figure(selected_morph):
     if not selected_morph:
-        return make_figure_with_background(encoded_image)  # fallback image
+        return make_figure_with_background(encoded_image)  
 
-    # Filter for patient/morph info
     patient_info = treats[treats['simplemorph'] == selected_morph]
     if patient_info.empty:
         return make_figure_with_background(encoded_image)
@@ -378,27 +456,21 @@ def update_anatomy_figure(selected_morph):
 
     fig, ax = plt.subplots(figsize=(6, 10))
 
-    # Prepare the organs to highlight based on biospecimen locations in the cohort
     cohort_organs = patient_info['biospeclocation'].dropna().unique().tolist()
 
     
     anatomogram = pyanatomogram.Anatomogram('homo_sapiens.female')
     anatomogram.to_matplotlib(ax=ax)
 
-
-
-    # Save matplotlib figure to buffer
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight')
     plt.close(fig)
     buf.seek(0)
 
-    # Get image size and encode for plotly
     img = Image.open(buf)
     w, h = img.size
     img_str = base64.b64encode(buf.getvalue()).decode()
 
-    # Create plotly figure and add anatomy image as background
     fig_out = go.Figure()
     fig_out.add_layout_image(
         dict(
@@ -443,7 +515,7 @@ def update_anatomy_figure(selected_morph):
             ))
 
     fig_out.update_layout(
-        title=f'Biospecimen Legion Map for {selected_morph}',
+        title=f'Biospecimen Legion Map',
         width=w,
         height=h,
         xaxis=dict(visible=False, range=[0, w]),
@@ -488,4 +560,5 @@ def createtable2(selected_morph):
     data=cohort_data.to_dict('records')
 
     return columns,data
+
 
