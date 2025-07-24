@@ -100,7 +100,7 @@ annotations = {
     'bladder':(220,395),
     'coronary':(222,199),
     'adrenal gland':(185,300),
-    'adipose':(100,100),
+    'adipose':(240,280),
     'prostate gland':(219,395),
 }
 
@@ -264,17 +264,6 @@ layout = dbc.Container([
             ),
             width=6,
             style={'backgroundColor':'transparent'}
-            
-        ),
-        dash_table.DataTable(
-            id='survival-summary',
-            columns=[
-                {"name": "Category", "id": "Category"},
-                {"name": "Deaths Recorded", "id": "Deaths Recorded"}
-            ],
-            style_table={'overflowX': 'auto'},
-            style_cell={'textAlign': 'center'},
-            style_header={'fontWeight': 'bold'}
         )
     ])
 ],fluid=True,  style={'backgroundColor': 'transparent'})
@@ -401,6 +390,7 @@ def update_anatomy_figure(selected_morph):
 
     cohort_organs = patient_info['biospeclocation'].dropna().unique().tolist()
 
+    cohort_biospecimens = biospecdata[biospecdata['simplemorph'] == selected_morph]
     
     anatomogram = pyanatomogram.Anatomogram('homo_sapiens.female')
     anatomogram.to_matplotlib(ax=ax)
@@ -431,9 +421,14 @@ def update_anatomy_figure(selected_morph):
 
    
     organ_counts = {}
-    for organ in patient_info['biospeclocation'].dropna():
-        organ_counts[organ] = organ_counts.get(organ, 0) + 1
-
+    blood_counts={}
+  
+    for _, row in cohort_biospecimens.iterrows():
+        organ = row['biospeclocation']
+        if row['ogmaterial'] == 'blood':
+            blood_counts[organ] = blood_counts.get(organ, 0) + 1
+        else:
+            organ_counts[organ] = organ_counts.get(organ, 0) + 1
     unique_organs = list(organ_counts.keys())
     organ_colors = {organ: color for organ, color in zip(unique_organs, pc.qualitative.Plotly)}
 
@@ -456,6 +451,20 @@ def update_anatomy_figure(selected_morph):
                 hoverinfo='text',
                 customdata=[organ]
             ))
+            
+    total_blood = sum(blood_counts.values())
+
+    if total_blood > 0:
+        fig_out.add_trace(go.Scatter(
+            x=[w * 0.2],  
+            y=[h * 0.8],
+            mode='markers',
+            marker=dict(size=8 + total_blood * 2, color='red', symbol='diamond', opacity=0.6),
+            name="Blood",
+            text=f"Blood: {total_blood} biospecimens",
+            hoverinfo='text',
+            customdata=["blood"]
+        ))
 
     fig_out.update_layout(
         title=f'Biospecimen Map',
@@ -486,7 +495,6 @@ def createtable2(selected_morph, clickData):
     if cohort_data.empty:
         return [], []
 
-    print("CLICKDATA:", clickData)
     
     if clickData and 'points' in clickData:
         clicked_organ = clickData['points'][0]['customdata']
@@ -515,12 +523,11 @@ def createtable2(selected_morph, clickData):
 
 @callback(
     Output('survival', 'figure'),
-    Output('survival-summary', 'data'),
     Input('cohort-dropdown', 'value')
 )
 def update_survival(selected_cohort):
     if not selected_cohort:
-        return go.Figure(layout={"title": "Select a patient to see survival curve"}), []
+        return go.Figure(layout={"title": "Select a patient to see survival curve"})
     df = treats.copy()
     df['dead'] = np.where(df['vitalstatus'] == 'dead', 1, 0)
 
@@ -543,7 +550,6 @@ def update_survival(selected_cohort):
     category_list = cohort_data['categories'].dropna().unique()
     color_map = {cat: color_list[i % len(color_list)] for i, cat in enumerate(category_list)}
 
-    summary_data = []
     
     for i, cat in enumerate(category_list):
         group = cohort_data[cohort_data['categories'] == cat]
@@ -560,15 +566,8 @@ def update_survival(selected_cohort):
             name=cat,
             line=dict(color=color_map[cat])
         ))
-        
-        summary_data.append({
-           'Category':cat,
-           'Deaths Recorded': int(group['dead'].sum())
-        })
+      
 
-        
-        
-        
 
     fig.update_layout(
         title=f'Survival Curves by Treatment Category in {selected_cohort}',
@@ -578,7 +577,7 @@ def update_survival(selected_cohort):
         legend_title='Treatment Category'
     )
  
-    return fig, summary_data
+    return fig
 
 
 
