@@ -11,8 +11,8 @@ navbar=dbc.NavbarSimple(
     children=[
         dbc.NavItem(dbc.NavLink("Home", href='/')),
         dbc.NavItem(dbc.NavLink("Patients", href="/patients")),
-        dbc.NavItem(dbc.NavLink("Cohorts", href="/cohort"))
-                    
+        dbc.NavItem(dbc.NavLink("Cohorts", href="/cohort")),
+        dbc.NavItem(dbc.NavLink("Drugs", href='/drug'))             
     ]
 )
 app.layout = dbc.Container([
