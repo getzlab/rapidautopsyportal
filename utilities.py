@@ -25,6 +25,9 @@ import plotly.colors as pc
 from dash import register_page
 from dash import callback, Input, Output, dcc
 
+#functions merge mulitple data sets together in different combinations
+
+#merges three data sets, it does duplicate only use when necessary
 def treatment_process_centered(filename, filename2, filename3):
 
     df = pd.read_csv(filename, sep=',')
@@ -85,6 +88,32 @@ def treatment_process_centered(filename, filename2, filename3):
     }
     return new_dict
 
+#added drugs and treatments to the participant data
+def  treatmentandpatient(filename,filename1):
+    df=pd.read_csv(filename, sep=',')
+    df2=pd.read_csv(filename1, sep='\t')
+    df=pd.merge(df,df2, on='participant_id', how='inner')
+    patient_val = df['participant_id'].tolist()
+    tx_start = df['start_date_dfd'].tolist()
+    tx_end = df['stop_date_dfd'].tolist()
+    drug_type=df['drugs'].tolist()
+    followupdate=df['follow_up_date'].tolist()
+    vital_status=df['vital_status'].tolist()
+    df = df.drop_duplicates()
+    
+    
+    
+    new_dict = {'participant_id': patient_val,
+               'start_date_dfd': tx_start,
+               'stop_date_dfd': tx_end,
+               'drug':drug_type,
+               'followup':followupdate,
+               'vitalstatus':vital_status
+    }
+    return new_dict
+    
+
+#also merging three data sets but with a biospecimen focus
 def treatment_process_centeredbio(filename, filename2, filename3):
 
     df = pd.read_csv(filename, sep=',')
@@ -162,6 +191,66 @@ def tableprocess(filename, filename1):
      
     return new_dict
     
+
+def biopsy_process_centered(filename, filename2):
+    df = pd.read_csv(filename, sep='\t')
+    df2=pd.read_csv(filename2, sep='\t')
+    df=pd.merge(df,df2, on='participant_id', how='inner')
+    patient_val = df['participant_id'].tolist()
+    collectiondate=df['collection_date_dfd'].tolist()
+    sub_material_type=df['submitted_material_type'].tolist()
+    og_material_type=df['original_material_type'].tolist()
+    prim_site=df['primary_site'].tolist()
+    tiss_site=df['tissue_site'].tolist()
+    details=df['tissue_site_detail'].tolist()
+    analytetype=df['analyte_type'].tolist()
+    experimentalstrategy=df['experimental_strategy'].tolist()
+
+    
+    new_dict = {'patient': patient_val,
+               'site':prim_site,
+               'collection':collectiondate,
+               'submaterial':sub_material_type,
+               'ogmaterial':og_material_type,
+               'tissue_site':tiss_site,
+               'tissuedetails':details,
+               'analyte':analytetype,
+               'strategy':experimentalstrategy
+               }
+     
+    return new_dict
+
+def prepostmerge(filename,filename1):
+    df=pd.read_csv(filename, sep='\t')
+    df2=pd.read_csv(filename1, sep=',')
+    df=pd.merge(df,df2, on='participant_id', how='inner')
+    treatments=df['categories'].tolist()
+    drugs=df['drugs'].tolist()
+    tx_start=df['start_date_dfd'].tolist()
+    tx_end=df['stop_date_dfd'].tolist()
+    stop=df['stop_reason'].tolist()
+    patient_val = df['participant_id'].tolist()
+    collectiondate=df['collection_date_dfd'].tolist()
+    sub_material_type=df['submitted_material_type'].tolist()
+    og_material_type=df['original_material_type'].tolist()
+    prim_site=df['primary_site'].tolist()
+    tiss_site=df['tissue_site'].tolist()
+    
+    new_dict={'patient':patient_val,
+              'treatment':treatments,
+              'drugs':drugs,
+              'tx_start':tx_start,
+              'tx_end':tx_end,
+              'stopreason':stop,
+              'collection':collectiondate,
+              'submaterial':sub_material_type,
+              'ogmaterial':og_material_type,
+              'primarysite':prim_site,
+              'tissuesite':tiss_site
+              }
+    return new_dict
+    
+    
 def make_figure_with_background(base64_img):
     fig = go.Figure()
    
@@ -238,3 +327,4 @@ tissue_to_site={
     'Adipose - Subcutaneous (UBERON:0002190)':'adipose',
     'Ovary (UBERON:0000992)':'ovary',
 }
+    
