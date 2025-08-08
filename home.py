@@ -1,26 +1,17 @@
 import dash
-from dash import html, dcc, register_page
+from dash import html, dcc, register_page, callback, Input, Output
 import dash_bootstrap_components as dbc
 import matplotlib
 from dash import html, dcc, Input, Output
 import plotly.graph_objects as go
-from PIL import Image
-import base64
-import io
 import matplotlib.pyplot as plt
-import pyanatomogram
 import pandas as pd
 import numpy as np
 from plotly.subplots import make_subplots
 import math
-import matplotlib.patches as mpatches
-import matplotlib.colors as mpcolor
-import matplotlib.cm as cm
-from matplotlib.lines import Line2D
 import plotly.express as px
 import plotly.io as pio
 import dash_bootstrap_components as dbc
-from dash import Dash, dash_table
 import plotly.colors as pc
 from utilities import treatment_process_centered, tableprocess
 from dash import register_page
@@ -30,8 +21,42 @@ from dash import callback, Input, Output, dcc
 
 register_page(__name__, path="/")
 
+#loading in the data
 treats=pd.DataFrame(treatment_process_centered('Juric_Rapid_Autopsy_MASTER-treatments1.csv', 'Juric_Rapid_Autopsy_MASTER-participants.txt', 'samples.6i2fn.tsv'))
+participants=pd.read_csv('Juric_Rapid_Autopsy_MASTER-participants.txt', sep='\t')
+samples=pd.read_csv('samples.6i2fn.tsv', sep='\t')
 
+site_to_organ = {
+    'BREAST (C50)': 'breast',
+    'BRONCHUS AND LUNG (C34)': 'lung',
+    'COLON (C18)': 'colon',
+    'CORPUS UTERI (C54)': 'uterus',
+    'ESOPHAGUS (C15)': 'esophagus',
+    'GALLBLADDER (C23)': 'gall bladder',
+    'KIDNEY (C64)': 'kidney',
+    'LIVER AND INTRAHEPATIC BILE DUCTS (C22)': 'liver',
+    'LYMPH NODES (C77)': 'lymph node',
+    'OTHER AND UNSPECIFIED PARTS OF BILIARY TRACT (C24)':'bilary tract',
+    'OVARY (C56)': 'ovary',
+    'PANCREAS (C25)': 'pancreas',
+    'SKIN (C44)': 'skin',
+    'STOMACH (C16)': 'stomach',
+    'THYROID GLAND (C73)': 'thyroid gland',
+    'PROSTATE GLAND (C61)': 'prostate gland',
+}
+treats['organs'] = treats['site'].map(site_to_organ).fillna('Fail')
+
+biospecdata=pd.DataFrame(tableprocess('Juric_Rapid_Autopsy_MASTER-biospecimens.txt', 'Juric_Rapid_Autopsy_MASTER-participants.txt'))
+biospecdata['organs'] = biospecdata['site'].map(site_to_organ).fillna('Fail')
+
+dropdown_options = [
+    {'label': 'Race', 'value': 'race'},
+    {'label': 'Gender', 'value': 'gender'},
+    {'label': 'Analyte Type', 'value': 'analyte_type'},
+    {'label': 'Experimental Strategy', 'value': 'experimental_strategy'}
+]
+
+#Layout for the page
 layout = dbc.Container([
     dbc.Row([
         dbc.Col(
@@ -41,7 +66,7 @@ layout = dbc.Container([
     ]),
     dbc.Row([
         dbc.Col(
-            html.H4("Explore cohort-wide and patient-specific insights.", 
+            html.H4("Explore cohort-wide, and drug or patient-specific insights.", 
                     className="text-secondary text-center mb-4")
         )
     ]),
@@ -56,11 +81,16 @@ layout = dbc.Container([
         )
     ]),
     dbc.Row([
+        dbc.Col(
+            dbc.Button("Go to Drug Page", href="/drug", color="primary", size="lg", className="d-block mx-auto")
+        )
+    ]),
+    dbc.Row([
         dbc.Col([
             html.P("Categories:"),
             dcc.Dropdown(
                 id='names',
-                options=[{'label': x.capitalize(), 'value': x} for x in ['race', 'analyte', 'gender','strategy']],
+                options=dropdown_options,
                 value='race',
                 clearable=False
             ),
@@ -73,24 +103,37 @@ layout = dbc.Container([
     dcc.Graph(id="barchart", config={'staticPlot': True}),
 ], fluid=True, style={'padding': '60px'})
 
+#callback for both the pie chart and the barchart
 @callback(
     [Output("piechart", "figure"),
      Output("barchart", "figure")],
     Input("names", "value"))
 
+#creating the pie chart and the bar chart
 def generate_chart(names):
-    df=treats
+    names=names.strip().lower()
+    if names in participants.columns:
+        df = participants
+    elif names in samples.columns:
+        df = samples
+    else:
+        df = pd.DataFrame(columns=[names])
+ 
     count_series = df[names].value_counts().reset_index()
     count_series.columns = [names, 'count']
     palette = px.colors.qualitative.Dark24
     fig = px.pie(count_series, values='count', names=names, hole=.3, color_discrete_sequence=palette)
-    fig.update_layout(title=f'Distribution of {names}')
+    fig.update_layout(title=f'Distribution of {names.title()}')
     
-    bar_fig = px.bar(treats, x='year', y='ulp_tumor', labels={'year': 'Collection Year', 'ulp_tumor': 'ULP Tumor Fraction'})
-    bar_fig.update_layout(title=f'Bar Chart of ULP Tumor Fraction', showlegend=False,  xaxis_title='Year of Diagnosis',
-        yaxis_title='ULP Tumor Fraction',)
+    organ_counts = biospecdata['organs'].value_counts().reset_index()
+    organ_counts.columns = ['organs', 'count']
+    organ_counts = organ_counts.sort_values(by='count', ascending=False)
+    bar_fig = px.bar(organ_counts, x='organs', y='count', labels={'organs': 'Cancer Type', 'count':'Biospecimen Count'})
+    bar_fig.update_layout(title=f'Biospecimens by Cancer Type', showlegend=False,  xaxis_title='Cancer Type',
+        yaxis_title='Biospecimen Count')
   
-    bar_fig.update_traces(hoverinfo='none', selector=dict(type='bar'))
+    bar_fig.update_traces(hoverinfo='none', selector=dict(type='bar'),
+                          text=organ_counts['count'], textposition='outside' , marker_color='#ff48a5')
 
     return fig, bar_fig
 
