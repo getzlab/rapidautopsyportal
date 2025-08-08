@@ -220,7 +220,7 @@ annotations = {
     'lymph node': (325, 222),
     'muscle':(260, 560),
     'ovary': (332, 480),
-    'other':(10,10),
+    'other':(400,100),
     'pancreas': (347, 372),
     'pericardium':(310, 295),
     'peritoneum': (285, 290),
@@ -470,8 +470,8 @@ def update_anatomy_figure(selected_patient):
 
     if total_blood > 0:
         fig_out.add_trace(go.Scatter(
-            x=[w * 0.2],  
-            y=[h * 0.8],
+            x=[w * 0.7],  
+            y=[h * 0.625],
             mode='markers',
             marker=dict(size=8 + total_blood * 2, color='red', symbol='diamond-tall-dot', opacity=0.6),
             name="Blood",
@@ -690,8 +690,6 @@ def update_swimmer_figure(selected_patient):
             ))
             
   
-    
-    #NEW IF I NEED TO DEBUG
     for idx, row in patient_biomarkers.iterrows():
         strategy = row['strategy']
         collection_time = row.get('collection')
