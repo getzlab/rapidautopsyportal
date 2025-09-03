@@ -16,6 +16,9 @@ import plotly.express as px
 import plotly.io as pio
 import dash_bootstrap_components as dbc
 import plotly.colors as pc
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utilities import treatment_process_centered, treatmentandpatient
 import lifelines
 from lifelines import KaplanMeierFitter

@@ -15,6 +15,9 @@ import plotly.io as pio
 import dash_bootstrap_components as dbc
 import plotly.colors as pc
 import lifelines
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utilities import treatment_process_centered, tableprocess, make_figure_with_background, biopsy_process_centered, prepostmerge
 import dash_ag_grid as dag
 
